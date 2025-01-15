@@ -34,19 +34,19 @@ class Program
         };
 
         string exchangeName = "process_file";
-        string queueName = $"task_huge_file_XML_{DateTime.Now.Ticks}";
+        string queueName = $"task_huge_file_XML";
         string routingKey = "task.XML";
         var connection = await factory.CreateConnectionAsync();
 
         using var channel = await connection.CreateChannelAsync();
         
-        await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Fanout);
+        await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct);
         await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null); 
         await channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey);
 
 
         // Configurar prefetchCount para limitar mensagens não confirmadas
-        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 1, global: true);
+        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += (model, ea) =>
