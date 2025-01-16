@@ -7,7 +7,7 @@ class Program
     static void Main(string[] args)
     {
         string outputFile = "dados_gerados.txt";
-        int totalLines = 100_000_000; // Total de linhas
+        int totalLines = 100_000; // Total de linhas
         int fieldsPerLine = 30; // Número de campos por linha
         int bufferSize = 10_000; // Linhas por buffer para evitar uso excessivo de memória
 

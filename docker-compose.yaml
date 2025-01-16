@@ -1,13 +1,33 @@
 services:
+
+  postgres:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=postgrespw
+    ports:
+      - 5432:5432
+    networks:
+      - process_network
+    volumes:
+      - pgdata:/var/lib/postresql/data
+
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
+    networks:
+      - process_network
     environment:
       RABBITMQ_DEFAULT_USER: user
       RABBITMQ_DEFAULT_PASS: userpwd
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "5672" ]
+      interval: 5s
+      timeout: 10s
+      retries: 3
   
   mongodb:
     image: mongo
@@ -16,9 +36,94 @@ services:
       - MONGO_INITIDB_ROOT_PASSWORD=mongopw
     ports:
       - 27017:27017
+    networks:
+      - process_network
     volumes:
       - mongodata:/data/db
+
+  consumer.1:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=consumer
+    networks:
+      - process_network 
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
+
+  consumer.2:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=consumer
+    networks:
+      - process_network 
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
+
+  producer.1:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development 
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=producer
+    networks:
+      - process_network
+    volumes:
+      - shared:/app/shared 
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
   
+  api.beat:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development 
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=api
+    networks:
+      - process_network
+    ports:
+      - 6001:80
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
+
 volumes:
+  pgdata:
+    driver: local
   mongodata:
     driver: local
+  shared: 
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/dkendy/projects/LongProcess/src/artifacts/file/ 
+
+networks:
+  process_network:
