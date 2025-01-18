@@ -75,6 +75,40 @@ services:
       - mongodb
       - rabbitmq
 
+  consumer.3:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=consumer
+    networks:
+      - process_network 
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
+
+  consumer.4:
+    image: dkendy.workhard
+    build:
+      context: .
+      dockerfile: src/ReadAndProcess/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
+      - RabbitMq__Host=rabbitmq
+      - service=consumer
+    networks:
+      - process_network 
+    depends_on:
+      - postgres
+      - mongodb
+      - rabbitmq
+
   producer.1:
     image: dkendy.workhard
     build:
@@ -88,7 +122,9 @@ services:
     networks:
       - process_network
     volumes:
-      - shared:/app/shared 
+      - type: bind
+        source: file
+        target: /app/file
     depends_on:
       - postgres
       - mongodb
@@ -107,7 +143,7 @@ services:
     networks:
       - process_network
     ports:
-      - 6001:80
+      - 6001:8080
     depends_on:
       - postgres
       - mongodb
@@ -118,12 +154,7 @@ volumes:
     driver: local
   mongodata:
     driver: local
-  shared: 
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /home/dkendy/projects/LongProcess/src/artifacts/file/ 
+  file:
 
 networks:
   process_network:

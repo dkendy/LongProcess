@@ -12,7 +12,7 @@ namespace QueueProducer
     public class Send : BackgroundService
     {
 
-        public string filePath { get; set; } = "/app/shared/";
+        public string filePath { get; set; } = "/app/file/dados_gerados.txt";
         public string operation { get; set; } = "2";
         private readonly ILogger<Send> _logger;
 
@@ -76,6 +76,7 @@ namespace QueueProducer
                     using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
                     {
                         int bytesRead;
+                        _logger.LogInformation("Lendo o arquivo");
                         while ((bytesRead = stream.Read(buffer, 0, chunkSize)) > 0)
                         {
                             string content = Encoding.UTF8.GetString(buffer, 0, bytesRead);
@@ -126,7 +127,8 @@ namespace QueueProducer
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogInformation($"Erro: {ex.Message}");
+                    _logger.LogError(ex,$"Erro: {ex.Message}");
+                    throw;
                 }
             });
         

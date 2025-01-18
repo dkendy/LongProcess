@@ -1,5 +1,8 @@
 
 
+using System.Xml.Linq;
+using MongoDB.Bson;
+using MongoDB.Driver;
 using QueueConsumer;
 using QueueProducer;
 
@@ -8,7 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 var serviceType = builder.Configuration.GetValue<string>("service")?.ToLowerInvariant();
- 
+
 switch (serviceType)
 {
     case "api":
@@ -35,41 +38,48 @@ switch (serviceType)
 
 var app = builder.Build();
 
- 
+
 if (serviceType == "api")
 {
     if (app.Environment.IsDevelopment())
     {
-       app.MapOpenApi();
+        app.MapOpenApi();
     }
 
     app.MapControllers();
 
-    var summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    };
 
-    app.MapGet("/weatherforecast", () =>
+
+    app.MapGet("/service", async () =>
     {
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-            new WeatherForecast
-            (
-                DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                Random.Shared.Next(-20, 55),
-                summaries[Random.Shared.Next(summaries.Length)]
-            ))
-            .ToArray();
-        return forecast;
+        var client = new MongoClient("mongodb://mongodb:27017/root:mongopw@mongodb");
+        var database = client.GetDatabase("dadosBancoCentro");
+        var _collection = database.GetCollection<BsonDocument>("pessoas");
+
+        var count = await _collection.CountDocumentsAsync(new BsonDocument());
+
+        var pipeline = new[]
+                    {
+                new BsonDocument("$facet", new BsonDocument
+                {
+                    { "earliest", new BsonArray { new BsonDocument("$sort", new BsonDocument("receivedAt", 1)), new BsonDocument("$limit", 1) } },
+                    { "latest", new BsonArray { new BsonDocument("$sort", new BsonDocument("receivedAt", -1)), new BsonDocument("$limit", 1) } }
+                })
+            };
+
+        var results = await _collection.AggregateAsync<BsonDocument>(pipeline);
+        var result = await results.FirstOrDefaultAsync();
+
+        var earliest = result["earliest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
+        var latest = result["latest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
+
+
+        return new { Earliest = earliest, Latest = latest, Total = count };
+
     })
-    .WithName("GetWeatherForecast"); 
+    .WithName("GetCount");
 
 
 }
 
 app.Run();
- 
-record WeatherForecast(DateOnly Date, int TemperatureC, string Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
