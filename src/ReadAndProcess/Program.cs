@@ -1,32 +1,25 @@
 
 
-using System.Xml.Linq;
 using MongoDB.Bson;
-using MongoDB.Driver;
-using QueueConsumer;
-using QueueProducer;
+using MongoDB.Driver; 
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-var serviceType = builder.Configuration.GetValue<string>("service")?.ToLowerInvariant();
+ 
+string serviceType = builder.Configuration.GetValue<string>("service")?.ToLowerInvariant();
 
 switch (serviceType)
 {
-    case "api":
-        Console.WriteLine("Starting in API mode...");
+    case "api": 
         builder.Services.AddControllers(); // Add API controllers
         builder.Services.AddOpenApi();
         break;
 
-    case "consumer":
-        Console.WriteLine("Starting consumer");
+    case "consumer": 
         builder.Services.AddHostedService<QueueConsumer.Process>();
         break;
 
-    case "producer":
-        Console.WriteLine("Starting producer");
+    case "producer": 
         builder.Services.AddHostedService<QueueProducer.Send>();
         break;
 
@@ -36,7 +29,7 @@ switch (serviceType)
 
 
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 
 if (serviceType == "api")
@@ -53,12 +46,12 @@ if (serviceType == "api")
     app.MapGet("/service", async () =>
     {
         var client = new MongoClient("mongodb://mongodb:27017/root:mongopw@mongodb");
-        var database = client.GetDatabase("dadosBancoCentro");
-        var _collection = database.GetCollection<BsonDocument>("pessoas");
+        IMongoDatabase database = client.GetDatabase("dadosBancoCentro");
+        IMongoCollection<BsonDocument> _collection = database.GetCollection<BsonDocument>("pessoas");
 
-        var count = await _collection.CountDocumentsAsync(new BsonDocument());
+        long count = await _collection.CountDocumentsAsync(new BsonDocument());
 
-        var pipeline = new[]
+        BsonDocument[] pipeline = new[]
                     {
                 new BsonDocument("$facet", new BsonDocument
                 {
@@ -67,11 +60,11 @@ if (serviceType == "api")
                 })
             };
 
-        var results = await _collection.AggregateAsync<BsonDocument>(pipeline);
-        var result = await results.FirstOrDefaultAsync();
+        IAsyncCursor<BsonDocument> results = await _collection.AggregateAsync<BsonDocument>(pipeline);
+        BsonDocument result = await results.FirstOrDefaultAsync();
 
-        var earliest = result["earliest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
-        var latest = result["latest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
+        BsonDocument earliest = result["earliest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
+        BsonDocument latest = result["latest"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
 
 
         return new { Earliest = earliest, Latest = latest, Total = count };

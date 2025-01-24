@@ -4,13 +4,12 @@ using System.Text;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Logging; 
 using Polly;
+using Polly.Retry; 
 
-namespace QueueConsumer
-{
+namespace QueueConsumer;
+ 
     public class Process : BackgroundService
     {
         private readonly ILogger<Process> _logger;
@@ -30,14 +29,14 @@ namespace QueueConsumer
         {
 
             _logger.LogInformation("Initial setup");
-            var retryPolicy = Policy
+            AsyncRetryPolicy retryPolicy = Policy
             .Handle<Exception>()
             .WaitAndRetryAsync(
                 retryCount: 20, // Retry 5 times
                 sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)), // Exponential backoff
                 onRetry: (exception, timeSpan, retryCount, context) =>
                 {
-                    _logger.LogWarning($"Retry {retryCount} after {timeSpan.TotalSeconds} seconds due to {exception.Message}");
+                    _logger.LogWarning("Retry {Count} after {TotalSeconds} seconds due to {Message}", retryCount,timeSpan.TotalSeconds,exception.Message);
                 });
 
 
@@ -56,36 +55,33 @@ namespace QueueConsumer
             string queueName = $"task_huge_file";
             string routingKey = "task.DB";
 
-            await retryPolicy.ExecuteAsync(async () =>
-            {
+            await retryPolicy.ExecuteAsync(
+                async () =>  await factory.CreateConnectionAsync()
+             );
 
-                var connection = await factory.CreateConnectionAsync();
-
-            });
-
-            var connection = await factory.CreateConnectionAsync();
+            IConnection connection = await factory.CreateConnectionAsync(cancellationToken:stoppingToken);
             
-            using var channel = await connection.CreateChannelAsync();
-            await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct);
-            await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
-            await channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey);
+            using IChannel channel = await connection.CreateChannelAsync(cancellationToken:stoppingToken);
+            await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct,cancellationToken:stoppingToken);
+            await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null,cancellationToken:stoppingToken);
+            await channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey,cancellationToken:stoppingToken);
 
             _logger.LogInformation("Consumer started.");
             // Configurar prefetchCount para limitar mensagens não confirmadas
-            await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true);
-            var databaseName = "dadosBancoCentro";
-            var collectionName = "pessoas";
-            var client = new MongoClient("mongodb://mongodb:27017/root:mongopw@mongodb");
-            var database = client.GetDatabase(databaseName);
-            var collection = database.GetCollection<BsonDocument>(collectionName);
+            await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true,cancellationToken:stoppingToken);
+            string databaseName = "dadosBancoCentro";
+            string collectionName = "pessoas";
+            using var client = new MongoClient("mongodb://mongodb:27017/root:mongopw@mongodb");
+            IMongoDatabase database = client.GetDatabase(databaseName);
+            IMongoCollection<BsonDocument> collection = database.GetCollection<BsonDocument>(collectionName);
             var consumer = new AsyncEventingBasicConsumer(channel);
-            consumer.ReceivedAsync += (model, ea) =>
+            consumer.ReceivedAsync += async (model, ea) =>
             {
-                var body = ea.Body.ToArray();
-                var message = Encoding.UTF8.GetString(body);
+                byte[] body = ea.Body.ToArray();
+                string message = Encoding.UTF8.GetString(body);
                 try
                 {
-                    _logger.LogInformation($" [x] Received {message.Split(',')[0]} - {message.Split(',')[1]}");
+                    _logger.LogInformation("[x] Received {Id} - {Name}", message.Split(',')[0], message.Split(',')[1]);
 
                     var document = new BsonDocument
                     {
@@ -93,22 +89,24 @@ namespace QueueConsumer
                             { "name", message.Split(',')[1] },
                             { "receivedAt", DateTime.UtcNow }
                     };
-                    collection.InsertOne(document);
-                    channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false);
+                    await collection.InsertOneAsync(document);
+                    await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
                 }
                 catch (Exception ex)
                 {
-                    channel.BasicNackAsync(ea.DeliveryTag, false, true);
-                    _logger.LogError(ex, $"Erro de processamento {ex.Message}.");
-                    throw;
+                    _logger.LogError(ex, "Erro de processamento {Message}.", ex.Message);
+                    await channel.BasicNackAsync(ea.DeliveryTag, false, true, cancellationToken: stoppingToken);
+                    throw new Exception($"Erro de processamento na mensagem: {message}", ex);
                 }
-                return Task.CompletedTask;
+                await Task.CompletedTask;
             };
 
             await channel.BasicConsumeAsync(queue: queueName,
                                  autoAck: false,  // Manual acknowledgment
-                                 consumer: consumer);
-            _logger.LogInformation($"[Consumer - Waiting for messages...]");
+                                 consumer: consumer,
+                                  cancellationToken: stoppingToken);
+
+            _logger.LogInformation("[Consumer - Waiting for messages...]");
 
             _logger.LogInformation("Consumer is running...");
             while (!stoppingToken.IsCancellationRequested)
@@ -120,7 +118,7 @@ namespace QueueConsumer
 
     }
 
-}
+
 
 
 

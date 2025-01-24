@@ -1,14 +1,16 @@
 ﻿using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-using System.Text; 
+using System.Text;
 
-class Program
+namespace consumerxml;
+
+public static class Program
 {
     private static string XmlFilePath = "";
 
-    static async Task Main(string[] args)
+    public static async Task Main(string[] args)
     {
- 
+
 
         if (args.Length != 0)
         {
@@ -20,7 +22,6 @@ class Program
         {
             XmlFilePath = "../../../../../artifacts/file/output.xml";
         }
-
 
         var factory = new ConnectionFactory
         {
@@ -36,12 +37,12 @@ class Program
         string exchangeName = "process_file";
         string queueName = $"task_huge_file_XML";
         string routingKey = "task.XML";
-        var connection = await factory.CreateConnectionAsync();
+        IConnection connection = await factory.CreateConnectionAsync();
 
-        using var channel = await connection.CreateChannelAsync();
-        
+        using IChannel channel = await connection.CreateChannelAsync();
+
         await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct);
-        await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null); 
+        await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
         await channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey);
 
 
@@ -51,22 +52,22 @@ class Program
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += (model, ea) =>
         {
-            var body = ea.Body.ToArray();
-            var message = Encoding.UTF8.GetString(body);
+            byte[] body = ea.Body.ToArray();
+            string message = Encoding.UTF8.GetString(body);
             try
             {
                 Console.WriteLine($" [x] Received {message.Split(',')[0]} - {message.Split(',')[1]}");
 
                 AppendToXmlFile(message);
 
-                channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false);
+                channel?.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false).AsTask();
             }
             catch (Exception ex)
-            { 
-                channel.BasicNackAsync(ea.DeliveryTag, false, true);
+            {
+                channel.BasicNackAsync(ea.DeliveryTag, false, true).AsTask();
                 Console.WriteLine($"[Consumer   ERROR: {ex.Message}");
                 throw;
-            } 
+            }
 
             return Task.CompletedTask;
         };
@@ -75,16 +76,13 @@ class Program
                              autoAck: false,  // Manual acknowledgment
                              consumer: consumer);
 
-        Console.WriteLine($"[Consumer   Waiting for messages...");
-        Console.ReadLine(); // Mantém o consumidor vivo
-        Console.WriteLine("Press [enter] to exit.");
-        Console.ReadLine();
+       
     }
 
-    
+
     private static readonly object FileLock = new object();
 
-     private static void AppendToXmlFile(string csvMessage)
+    private static void AppendToXmlFile(string csvMessage)
     {
         lock (FileLock)
         {
@@ -95,18 +93,17 @@ class Program
             }
 
             // Converte a mensagem CSV em elementos XML
-            var fields = csvMessage.TrimEnd(';').Split(',');
+            string[] fields = csvMessage.TrimEnd(';').Split(',');
             string xmlContent = $"<Record><Id>{fields[0]}</Id><Name>{fields[1]}</Name><Role>{fields[2]}</Role></Record>";
 
             // Lê o conteúdo atual do arquivo XML
-            var currentXml = File.ReadAllText(XmlFilePath);
+            string currentXml = File.ReadAllText(XmlFilePath);
 
             // Insere o novo conteúdo antes da tag de fechamento </Root>
-            var updatedXml = currentXml.Replace("</Root>", $"{xmlContent}\n</Root>");
+            string updatedXml = currentXml.Replace("</Root>", $"{xmlContent}\n</Root>");
 
             // Escreve o conteúdo atualizado no arquivo
-            File.WriteAllText(XmlFilePath, updatedXml);
-            Console.WriteLine($"[Consumer - Successfully appended to XML file.");
+            File.WriteAllText(XmlFilePath, updatedXml); 
         }
     }
 
