@@ -4,119 +4,72 @@ using System.Text;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging; 
+using Microsoft.Extensions.Logging;
 using Polly;
-using Polly.Retry; 
+using Polly.Retry;
+using Infrastructure.ServiceBus;
+using System.Data;
+using Infrastructure.Database;
 
-namespace QueueConsumer;
- 
-    public class Process : BackgroundService
+namespace consumer;
+
+public class Process : BackgroundService
+{
+    private readonly ILogger<Process> _logger;
+    private readonly IServiceBusServices _serviceBusServices;
+    private readonly IDatabaseServices _databaseServices;
+
+    public Process(ILogger<Process> logger, IServiceBusServices serviceBusServices, IDatabaseServices databaseServices)
     {
-        private readonly ILogger<Process> _logger;
+        _logger = logger;
+        _serviceBusServices = serviceBusServices;
+        _databaseServices = databaseServices;
+    }
 
-        public Process(ILogger<Process> logger)
+    public override Task StartAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Consumer is starting.");
+        return base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+
+        string exchangeName = "process_file";
+        string queueName = $"task_huge_file";
+        string routingKey = "task.DB";
+
+        await _serviceBusServices.ReceiveMessagesAsync(queueName: queueName, exchangeName: exchangeName, routingKey: routingKey,
+         async onMessageReceived =>
         {
-            _logger = logger;
-        }
 
-        public override Task StartAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("Consumer is starting.");
-            return base.StartAsync(cancellationToken);
-        }
-
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-
-            _logger.LogInformation("Initial setup");
-            AsyncRetryPolicy retryPolicy = Policy
-            .Handle<Exception>()
-            .WaitAndRetryAsync(
-                retryCount: 20, // Retry 5 times
-                sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)), // Exponential backoff
-                onRetry: (exception, timeSpan, retryCount, context) =>
-                {
-                    _logger.LogWarning("Retry {Count} after {TotalSeconds} seconds due to {Message}", retryCount,timeSpan.TotalSeconds,exception.Message);
-                });
-
-
-            var factory = new ConnectionFactory
+            try
             {
-                HostName = "rabbitmq",
-                Port = 5672,
-                Password = "userpwd",
-                UserName = "user",
-                AutomaticRecoveryEnabled = true,
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(5),
-                RequestedHeartbeat = TimeSpan.FromSeconds(30)
-            };
+                using MongoClient client = _databaseServices.GetClient();
 
-            string exchangeName = "process_file";
-            string queueName = $"task_huge_file";
-            string routingKey = "task.DB";
+                _logger.LogInformation("[x] Received {Id} - {Name} **** ", onMessageReceived.Split(',')[0], onMessageReceived.Split(',')[1]);
 
-            await retryPolicy.ExecuteAsync(
-                async () =>  await factory.CreateConnectionAsync()
-             );
-
-            IConnection connection = await factory.CreateConnectionAsync(cancellationToken:stoppingToken);
-            
-            using IChannel channel = await connection.CreateChannelAsync(cancellationToken:stoppingToken);
-            await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct,cancellationToken:stoppingToken);
-            await channel.QueueDeclareAsync(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null,cancellationToken:stoppingToken);
-            await channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey,cancellationToken:stoppingToken);
-
-            _logger.LogInformation("Consumer started.");
-            // Configurar prefetchCount para limitar mensagens não confirmadas
-            await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true,cancellationToken:stoppingToken);
-            string databaseName = "dadosBancoCentro";
-            string collectionName = "pessoas";
-            using var client = new MongoClient("mongodb://mongodb:27017/root:mongopw@mongodb");
-            IMongoDatabase database = client.GetDatabase(databaseName);
-            IMongoCollection<BsonDocument> collection = database.GetCollection<BsonDocument>(collectionName);
-            var consumer = new AsyncEventingBasicConsumer(channel);
-            consumer.ReceivedAsync += async (model, ea) =>
-            {
-                byte[] body = ea.Body.ToArray();
-                string message = Encoding.UTF8.GetString(body);
-                try
+                var document = new BsonDocument
                 {
-                    _logger.LogInformation("[x] Received {Id} - {Name}", message.Split(',')[0], message.Split(',')[1]);
-
-                    var document = new BsonDocument
-                    {
-                            { "id", message.Split(',')[0] },
-                            { "name", message.Split(',')[1] },
+                            { "id", onMessageReceived.Split(',')[0] },
+                            { "name", onMessageReceived.Split(',')[1] },
                             { "receivedAt", DateTime.UtcNow }
-                    };
-                    await collection.InsertOneAsync(document);
-                    await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Erro de processamento {Message}.", ex.Message);
-                    await channel.BasicNackAsync(ea.DeliveryTag, false, true, cancellationToken: stoppingToken);
-                    throw new Exception($"Erro de processamento na mensagem: {message}", ex);
-                }
-                await Task.CompletedTask;
-            };
+                };
+                IMongoCollection<BsonDocument> collection = _databaseServices.GetDocument(client, "Pessoas", "BancoCentral2");
+                await collection.InsertOneAsync(document);
 
-            await channel.BasicConsumeAsync(queue: queueName,
-                                 autoAck: false,  // Manual acknowledgment
-                                 consumer: consumer,
-                                  cancellationToken: stoppingToken);
-
-            _logger.LogInformation("[Consumer - Waiting for messages...]");
-
-            _logger.LogInformation("Consumer is running...");
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await Task.Delay(1000, stoppingToken);
+                _logger.LogInformation("Insert ok");
             }
-            _logger.LogInformation("Consumer stopped.");
-        }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro de processamento {Message}.", ex.Message);
+                throw new Exception($"Error processing message: {onMessageReceived}", ex);
+            }
+        }, stoppingToken);
 
     }
+
+}
 
 
 

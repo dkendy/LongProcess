@@ -76,11 +76,11 @@ public static class Program
                              autoAck: false,  // Manual acknowledgment
                              consumer: consumer);
 
-       
+
     }
 
 
-    private static readonly object FileLock = new object();
+    private static readonly System.Threading.Lock FileLock = new();
 
     private static void AppendToXmlFile(string csvMessage)
     {
@@ -103,7 +103,7 @@ public static class Program
             string updatedXml = currentXml.Replace("</Root>", $"{xmlContent}\n</Root>");
 
             // Escreve o conteúdo atualizado no arquivo
-            File.WriteAllText(XmlFilePath, updatedXml); 
+            File.WriteAllText(XmlFilePath, updatedXml);
         }
     }
 

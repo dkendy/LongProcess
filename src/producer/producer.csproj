@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
  
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
@@ -7,6 +6,10 @@
     <PackageReference Include="RabbitMQ.Client" Version="7.0.0" /> 
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
   </ItemGroup>
- 
 
+ 
+  <ItemGroup>
+    <ProjectReference Include="../Infrastructure/Infrastructure.csproj" />
+  </ItemGroup>
+ 
 </Project>

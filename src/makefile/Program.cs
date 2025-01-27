@@ -1,5 +1,4 @@
-using System;
-using System.IO;
+
 using System.Text;
 using System.Security.Cryptography;
 
@@ -20,7 +19,7 @@ internal static class Program
 
     public static void GenerateRandomFile(string outputFile, int totalLines, int fieldsPerLine, int bufferSize)
     {
-        
+
         var buffer = new StringBuilder();
 
 
@@ -51,7 +50,7 @@ internal static class Program
         }
     }
 
-    public static string GenerateRandomLine( int fieldsPerLine)
+    public static string GenerateRandomLine(int fieldsPerLine)
     {
         string[] fields = new string[fieldsPerLine];
         for (int i = 0; i < fieldsPerLine; i++)

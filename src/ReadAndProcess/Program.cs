@@ -1,26 +1,33 @@
 
 
+using Infrastructure.DI;
 using MongoDB.Bson;
-using MongoDB.Driver; 
+using MongoDB.Driver;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
- 
+
 string serviceType = builder.Configuration.GetValue<string>("service")?.ToLowerInvariant();
+builder.Services.AddInfraestrutura();
+
+builder.Services.AddLogging(builder =>
+{
+    builder.AddConsole(); // Add console output for logs
+});
 
 switch (serviceType)
 {
-    case "api": 
+    case "api":
         builder.Services.AddControllers(); // Add API controllers
         builder.Services.AddOpenApi();
         break;
 
-    case "consumer": 
-        builder.Services.AddHostedService<QueueConsumer.Process>();
+    case "consumer":
+        builder.Services.AddHostedService<consumer.Process>();
         break;
 
-    case "producer": 
-        builder.Services.AddHostedService<QueueProducer.Send>();
+    case "producer":
+        builder.Services.AddHostedService<producer.Send>();
         break;
 
     default:
@@ -51,9 +58,9 @@ if (serviceType == "api")
 
         long count = await _collection.CountDocumentsAsync(new BsonDocument());
 
-        BsonDocument[] pipeline = new[]
-                    {
-                new BsonDocument("$facet", new BsonDocument
+        var pipeline = new BsonDocument[]
+            {
+                new("$facet", new BsonDocument
                 {
                     { "earliest", new BsonArray { new BsonDocument("$sort", new BsonDocument("receivedAt", 1)), new BsonDocument("$limit", 1) } },
                     { "latest", new BsonArray { new BsonDocument("$sort", new BsonDocument("receivedAt", -1)), new BsonDocument("$limit", 1) } }

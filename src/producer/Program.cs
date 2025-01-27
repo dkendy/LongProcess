@@ -1,138 +1,80 @@
 ﻿
 using System.Text;
 using RabbitMQ.Client;
-using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Retry;
+using Infrastructure.ServiceBus;
+using Microsoft.Extensions.Configuration;
 
-namespace QueueProducer;
-
+namespace producer;
 
 public class Send : BackgroundService
 {
-
-    public string filePath { get; set; } = "/app/file/dados_gerados.txt";
-    public string operation { get; set; } = "2";
+    public readonly IServiceBusServices _serviceBusServices;
+    public readonly IConfiguration _configuration;
+    public Send(IServiceBusServices serviceBusServices, ILogger<Send> logger, IConfiguration configuration)
+    {
+        _serviceBusServices = serviceBusServices;
+        _logger = logger;
+        _configuration = configuration;
+        FilePath = _configuration["local"] ?? "C:\\Users\\Public\\Documents\\hugefile.csv";
+    }
+    public string FilePath { get; set; } = "C:\\Users\\Public\\Documents\\hugefile.csv";
+    public string Operation { get; set; } = "2";
     private readonly ILogger<Send> _logger;
 
-    public Send(ILogger<Send> logger)
-    {
-        _logger = logger;
-    }
+
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
 
-        AsyncRetryPolicy retryPolicy = Policy
-          .Handle<RabbitMQ.Client.Exceptions.BrokerUnreachableException>()
-          .WaitAndRetryAsync(
-              retryCount: 20, // Retry 5 times
-              sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)), // Exponential backoff
-              onRetry: (exception, timeSpan, retryCount, context) =>
-              {
-                   _logger.LogWarning("Retry {RetryCount} after {TotalSeconds} seconds due to {Message}",retryCount, timeSpan.TotalSeconds, exception.Message);
-              });
-
-
-        _logger.LogInformation("Arquivo: {FilePath}", filePath);
-
-        var factory = new ConnectionFactory
+        try
         {
-            HostName = "rabbitmq",
-            Port = 5672,
-            Password = "userpwd",
-            UserName = "user",
-            AutomaticRecoveryEnabled = true,
-            NetworkRecoveryInterval = TimeSpan.FromSeconds(5),
-            RequestedHeartbeat = TimeSpan.FromSeconds(30)
-        };
+            const int chunkSize = 1024 * 1024 * 100;
+            byte[] buffer = new byte[chunkSize];
+            var stringBuilder = new StringBuilder();
+            int lineCount = 0;
 
-        await retryPolicy.ExecuteAsync(async () =>
-        {
-            string exchangeName = "process_file";
-
-            using IConnection connection = await factory.CreateConnectionAsync();
-            using IChannel channel = await connection.CreateChannelAsync();
-
-            var properties = new BasicProperties
+            using (var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
             {
-                Persistent = true,
-                DeliveryMode = DeliveryModes.Persistent
-            };
-
-            _logger.LogInformation("Iniciando envio de mensagens");
-            await channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct, durable: false, autoDelete: false, arguments: null);
-
-
-            try
-            {
-                const int chunkSize = 1024 * 1024 * 100;
-                byte[] buffer = new byte[chunkSize];
-                var stringBuilder = new StringBuilder();
-                int lineCount = 0;
-
-                using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+                int bytesRead;
+                _logger.LogInformation("Lendo o arquivo");
+                while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, chunkSize), stoppingToken)) > 0)
                 {
-                    int bytesRead;
-                    _logger.LogInformation("Lendo o arquivo");
-                    while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, chunkSize), stoppingToken)) > 0)
+                    string content = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    stringBuilder.Append(content);
+
+                    string[] lines = stringBuilder.ToString().Split(';');
+                    for (int i = 0; i < lines.Length - 1; i++)
                     {
-                        string content = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        stringBuilder.Append(content);
-
-                        string[] lines = stringBuilder.ToString().Split(';');
-                        for (int i = 0; i < lines.Length - 1; i++)
-                        {
-
-                            byte[] body = Encoding.UTF8.GetBytes(lines[i]);
-                            await channel.BasicPublishAsync(exchange: exchangeName,
-                                                routingKey: "task.DB", mandatory: true, basicProperties: properties,
-                                                body: body);
-
-                            await channel.BasicPublishAsync(exchange: exchangeName,
-                                                routingKey: "task.XML", mandatory: true, basicProperties: properties,
-                                                body: body);
-
-                            lineCount++;
-
-                        }
-
-                        // Preservar a última linha parcial no buffer
-                        stringBuilder.Clear();
-                        stringBuilder.Append(lines[^1]);
+                        _logger.LogInformation("[x] Sending {Id} - {Name}", lines[i].Split(',')[0], lines[i].Split(',')[1]);
+                        await _serviceBusServices.SendMessagesAsync(message: lines[i], exchangeName: "process_file", routingKey: "task.DB", stoppingToken);
+                        lineCount++;
                     }
 
-                    // Processar o restante
-                    if (stringBuilder.Length > 0)
-                    {
-
-
-                        byte[] body = Encoding.UTF8.GetBytes(stringBuilder.ToString());
-                        await channel.BasicPublishAsync(exchange: exchangeName,
-                                                routingKey: "task.DB", mandatory: true, basicProperties: properties,
-                                                body: body);
-
-                        await channel.BasicPublishAsync(exchange: exchangeName,
-                                                routingKey: "task.XML", mandatory: true, basicProperties: properties,
-                                                body: body);
-
-                        _logger.LogInformation("Enviado chunk: {LineCount} linhas.",lineCount);
-                    }
+                    // Preservar a última linha parcial no buffer
+                    stringBuilder.Clear();
+                    stringBuilder.Append(lines[^1]);
                 }
 
-
-                _logger.LogInformation("Arquivo processado.");
+                // Processar o restante
+                if (stringBuilder.Length > 0)
+                {
+                    await _serviceBusServices.SendMessagesAsync(message: stringBuilder.ToString(), exchangeName: "exchangeName", routingKey: "task.DB", stoppingToken);
+                    _logger.LogInformation("Enviado chunk: {LineCount} linhas.", lineCount);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Erro ao processar o arquivo {FilePath}: {Message}",filePath, ex.Message);
-                throw new Exception($"Erro ao processar o arquivo {filePath}", ex);
-            }
-        });
 
-        _logger.LogInformation("Producer is running...");
+
+            _logger.LogInformation("Arquivo processado.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao processar o arquivo {FilePath}: {Message}", FilePath, ex.Message);
+            throw new Exception($"Erro ao processar o arquivo {FilePath}", ex);
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {

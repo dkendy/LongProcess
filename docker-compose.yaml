@@ -48,8 +48,10 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=consumer
     networks:
       - process_network 
@@ -65,8 +67,10 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=consumer
     networks:
       - process_network 
@@ -82,8 +86,10 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=consumer
     networks:
       - process_network 
@@ -99,8 +105,10 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb 
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=consumer
     networks:
       - process_network 
@@ -116,12 +124,15 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development 
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=producer
+      - local=/app/file/dados_gerados.txt
     networks:
       - process_network
-    volumes:
+    volumes: 
       - type: bind
         source: file
         target: /app/file
@@ -137,8 +148,10 @@ services:
       dockerfile: src/ReadAndProcess/Dockerfile
     environment:
       - ASPNETCORE_ENVIRONMENT=Development 
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=EventlyAuction;Username=postgres;Password=postgrespw 
-      - RabbitMq__Host=rabbitmq
+      - ConnectionStrings__DefaultConnection=mongodb://mongodb:27017/root:mongopw@mongodb
+      - ServiceBus__HostName=rabbitmq
+      - ServiceBus__Password=userpwd
+      - ServiceBus__UserName=user
       - service=api
     networks:
       - process_network

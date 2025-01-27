@@ -240,6 +240,8 @@ dotnet_diagnostic.CA1019.severity = none
 # CA1024: Use properties where appropriate
 dotnet_diagnostic.CA1024.severity = none
 
+dotnet_diagnostic.IDE0005.severity = none
+
 # CA1030: Use events where appropriate
 dotnet_diagnostic.CA1030.severity = none
 
