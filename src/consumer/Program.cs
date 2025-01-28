@@ -38,8 +38,16 @@ public class Process : BackgroundService
         string exchangeName = "process_file";
         string queueName = $"task_huge_file";
         string routingKey = "task.DB";
+        await _serviceBusServices.CreateChannel(exchangeName).ConfigureAwait(true);
+        IChannel _channel = _serviceBusServices.GetChannel();
+        
+        await _channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct, cancellationToken: stoppingToken).ConfigureAwait(true);
+        await _channel.QueueDeclareAsync(queue: queueName, durable: false, exclusive: false, autoDelete: false, arguments: null, cancellationToken: stoppingToken).ConfigureAwait(true);
+        await _channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey, cancellationToken: stoppingToken).ConfigureAwait(true);
+        await _channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true, cancellationToken: stoppingToken).ConfigureAwait(true);
 
-        await _serviceBusServices.ReceiveMessagesAsync(queueName: queueName, exchangeName: exchangeName, routingKey: routingKey,
+
+        await _serviceBusServices.ReceiveMessagesAsync(_channel,queueName: queueName, exchangeName: exchangeName, routingKey: routingKey,
          async onMessageReceived =>
         {
 
@@ -55,7 +63,7 @@ public class Process : BackgroundService
                             { "name", onMessageReceived.Split(',')[1] },
                             { "receivedAt", DateTime.UtcNow }
                 };
-                IMongoCollection<BsonDocument> collection = _databaseServices.GetDocument(client, "Pessoas", "BancoCentral2");
+                IMongoCollection<BsonDocument> collection = _databaseServices.GetDocument(client, "BancoCentral2", "Pessoas");
                 await collection.InsertOneAsync(document);
 
                 _logger.LogInformation("Insert ok");
@@ -66,6 +74,11 @@ public class Process : BackgroundService
                 throw new Exception($"Error processing message: {onMessageReceived}", ex);
             }
         }, stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await Task.Delay(5000, stoppingToken);
+        }
 
     }
 

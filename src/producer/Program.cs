@@ -40,6 +40,7 @@ public class Send : BackgroundService
             using (var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
             {
                 int bytesRead;
+                await _serviceBusServices.CreateChannel("process_file");
                 _logger.LogInformation("Lendo o arquivo");
                 while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, chunkSize), stoppingToken)) > 0)
                 {

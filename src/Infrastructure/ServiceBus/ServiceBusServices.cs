@@ -24,23 +24,16 @@ public class ServiceBusServices : IServiceBusServices
         _serviceBusConnection = serviceBusConnection;
     }
 
-    private async Task<IChannel> CreateChannel(string exchangeName)
+    public async Task CreateChannel(string exchangeName)
     {
-        return await _serviceBusConnection.CreateChannelAsync(exchangeName).ConfigureAwait(true);
+        _logger.LogInformation("CreateChannel");
+        _channel = await _serviceBusConnection.CreateChannelAsync(exchangeName).ConfigureAwait(true);
+
     }
 
 
     public async Task SendMessagesAsync(string message, string exchangeName, string routingKey, CancellationToken stoppingToken)
     {
-        _channel ??= await CreateChannel(exchangeName);
-
-        _channel.CallbackExceptionAsync += async (sender, args) =>
-        {
-            _logger.LogError("Exceção no canal: {Message}", args.Exception.Message);
-            await Task.CompletedTask;
-        };
-
-        _logger.LogInformation(" Creating channel");
         var properties = new BasicProperties
         {
             Persistent = true,
@@ -48,23 +41,35 @@ public class ServiceBusServices : IServiceBusServices
         };
 
         byte[] body = Encoding.UTF8.GetBytes(message);
+        if (_channel == null)
+        {
+            throw new InvalidOperationException("Channel is not created.");
+        }
+
         await _channel.BasicPublishAsync(exchange: exchangeName,
-                                                        routingKey: routingKey, mandatory: true, basicProperties: properties,
-                                                        body: body, cancellationToken: stoppingToken).ConfigureAwait(true);
+                                         routingKey: routingKey, mandatory: true, basicProperties: properties,
+                                         body: body, cancellationToken: stoppingToken).ConfigureAwait(true);
 
 
     }
 
-    public async Task ReceiveMessagesAsync(string queueName, string exchangeName, string routingKey, Action<string> onMessageReceived, CancellationToken stoppingToken)
+    public IChannel GetChannel()
     {
-        _channel ??= await CreateChannel(exchangeName);
-        _logger.LogInformation(" Creating channel");
+        return _channel;
+    }
 
-        await _channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct, cancellationToken: stoppingToken).ConfigureAwait(true);
-        await _channel.QueueDeclareAsync(queue: queueName, durable: false, exclusive: false, autoDelete: false, arguments: null, cancellationToken: stoppingToken).ConfigureAwait(true);
-        await _channel.QueueBindAsync(queue: queueName, exchange: exchangeName, routingKey: routingKey, cancellationToken: stoppingToken).ConfigureAwait(true);
-        await _channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 5000, global: true, cancellationToken: stoppingToken).ConfigureAwait(true);
-        var consumer = new AsyncEventingBasicConsumer(_channel);
+    public async Task ReceiveMessagesAsync(IChannel channel, string queueName, string exchangeName, string routingKey, Action<string> onMessageReceived, CancellationToken stoppingToken)
+    {
+        if(channel.IsOpen)
+        {
+            _logger.LogInformation("Channel is open");
+        }
+        else
+        {
+            _logger.LogInformation("Channel is not open");
+        }
+
+        var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (model, ea) =>
         {
             byte[] body = ea.Body.ToArray();
@@ -72,19 +77,20 @@ public class ServiceBusServices : IServiceBusServices
             try
             {
                 onMessageReceived(message);
-                await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken).ConfigureAwait(true);
+                await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken).ConfigureAwait(true);
             }
             catch
             {
-                await _channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, true, cancellationToken: stoppingToken).ConfigureAwait(true);
+                await channel.BasicNackAsync(deliveryTag: ea.DeliveryTag, multiple: false, true, cancellationToken: stoppingToken).ConfigureAwait(true);
             }
 
             await Task.CompletedTask;
 
         };
 
-        await _channel.BasicConsumeAsync(queue: queueName, autoAck: true, consumer: consumer, cancellationToken: stoppingToken).ConfigureAwait(true);
+        await channel.BasicConsumeAsync(queue: queueName, autoAck: false, consumer: consumer, cancellationToken: stoppingToken).ConfigureAwait(true);
 
     }
 
+ 
 }

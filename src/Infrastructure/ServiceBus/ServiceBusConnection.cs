@@ -56,7 +56,28 @@ public class ServiceBusConnection : IDisposable
                     await Task.CompletedTask;
                 };
 
+                _connection.CallbackExceptionAsync += async (sender, args) =>
+                {
+                    _logger.LogError("CallbackExceptionAsync: {Message}", args.Exception.Message);
+                    await Task.CompletedTask;
+                };
+
+                _connection.ConnectionBlockedAsync += async (sender, args) =>
+                {
+                    _logger.LogError("ConnectionBlockedAsync: {Message}", args.Reason);
+                    await Task.CompletedTask;
+                };
+
+                _connection.RecoveringConsumerAsync += async (sender, args) =>
+                {
+                    _logger.LogError("RecoveringConsumerAsync: {Message}", args.ConsumerTag);
+                    await Task.CompletedTask;
+                };
+
+
+
             });
+
         }
 
         if (_connection == null)
@@ -64,10 +85,29 @@ public class ServiceBusConnection : IDisposable
             throw new InvalidOperationException("Connection is not established.");
         }
 
-        _channel = await _connection.CreateChannelAsync();
+        if (_connection.IsOpen || _channel == null)
+        {
+            _logger.LogDebug("Criando canal");
+            
+            _channel = await _connection.CreateChannelAsync();
 
-        _logger.LogInformation("Conexão com o RabbitMQ estabelecida.");
-        await _channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct, durable: false, autoDelete: false, arguments: null);
+
+            _channel.CallbackExceptionAsync += async (sender, args) =>
+           {
+               _logger.LogError("Exceção no canal: {Message}", args.Exception.Message);
+               await Task.CompletedTask;
+           };
+
+            _channel.ChannelShutdownAsync += async (sender, args) =>
+            {
+                _logger.LogError("*** ChannelShutdownAsync : {Message}", args.ReplyText);
+                await Task.CompletedTask;
+            };
+
+            _logger.LogInformation("Conexão com o RabbitMQ estabelecida.");
+            await _channel.ExchangeDeclareAsync(exchange: exchangeName, type: ExchangeType.Direct, durable: false, autoDelete: false, arguments: null);
+        }
+
         return _channel;
     }
 
